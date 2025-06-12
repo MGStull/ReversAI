@@ -1,9 +1,8 @@
 
 #Goals
 #   1. MLP combined with Monte Carlos Tree Search with adjustable search depth
-#   2. Create Self Play option for training if neccessary
-#   3. Train on Online Data sets and convert them to useful format
-#   4. Download the Trained Model and implement it on the website
+#   2. Train on Online Data sets and convert them to useful format
+#   3. Download the Trained Model and implement it on the website
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -84,34 +83,41 @@ class Neural_Network:
 ##CHANGE BATCH AND EPOCH DATA PROCCESSING
 
 class batch:
-        def __init__(self,indices):
+        def __init__(self,indices,x_data,y_data,num_classes=64):
             self.size=len(indices)
-            self.input,self.expected = self.Grab(indices)
+            self.num_classes = num_classes
+            self.input,self.expected = self.Grab(indices,x_data,y_data)
             self.indices = indices
-        def Grab(self,indices):
+        
+        def Grab(self,indices,x_data,y_data):
             #changed to by 8 by 8
             X_batch = np.zeros((self.size,65,1))
             Y_batch = np.zeros(self.size,dtype=int)
 
             for i in range(0,len(indices)):    
-                X_batch[i] = x_train[indices[i]]  
-                Y_batch[i] = y_train[indices[i]]  
-            Y_batch_one_hot = np.zeros((self.size, 10))
+                X_batch[i] = x_data[indices[i]]  
+                Y_batch[i] = y_data[indices[i]]  
+
+            Y_batch_one_hot = np.zeros((self.size, self.num_classes))
             Y_batch_one_hot[np.arange(self.size), Y_batch] = 1
             return [X_batch, Y_batch_one_hot]
+
 class Epoch:
-    def __init__(self,k,batch):
+    def __init__(self,k,x_data,y_data,num_classes):
         self.indicesList = [[] for _ in range(k)]
         self.batches = []
-        randHold = list(range(len(x_train)))
+
+        randHold = list(range(len(x_data)))
         rand.shuffle(randHold)
-        chunk_size = len(x_train) // k
+        chunk_size = len(x_data) // k
+        
         for i in range(k - 1):
             self.indicesList[i] = randHold[i*chunk_size:(i+1)*chunk_size]
         self.indicesList[k - 1] = randHold[(k - 1)*chunk_size:]
 
         for i in self.indicesList:
-            self.batches.append(batch(i))
+            self.batches.append(batch(i,x_data,y_data,num_classes))
+
     def randTrain(self,NN):
         for i in self.batches:
             NN.backprop(i) 
