@@ -6,8 +6,8 @@ class dataSet():
         sum = 0
         self.coordTOindex = []
         self.games = []
-        self.x_train = []
-        self.y_train = []
+        self.x_data = []
+        self.y_data = []
         for i in range(8):
             for j in  range(8):
                 self.coordTOindex.append((i+1,j+1))
@@ -17,10 +17,10 @@ class dataSet():
             for i,row in enumerate(csvreader):
                 if(i>=size):
                     break
-                self.games.append(self.processRow(row,coordTOindex))
+                self.games.append(self.processRow(row))
         self.flatten()
     #black moves first in Othello
-    def processRow(self,row,coordTOindex):
+    def processRow(self,row):
         if row[1] == '-1':
             winner = -1
         elif row[1] == '1':
@@ -30,10 +30,10 @@ class dataSet():
         game = [row[2][i:i+2]for i in range(0,len(row[2]),2)]
         boards = np.zeros((len(game),65))
         moves =[]
-        boards[0][coordTOindex.index((4,4))] = 1
-        boards[0][coordTOindex.index((4,5))]= -1
-        boards[0][coordTOindex.index((5,5))] = 1
-        boards[0][coordTOindex.index((5,4))]= -1 
+        boards[0][self.coordTOindex.index((4,4))] = 1
+        boards[0][self.coordTOindex.index((4,5))]= -1
+        boards[0][self.coordTOindex.index((5,5))] = 1
+        boards[0][self.coordTOindex.index((5,4))]= -1 
 
         for i,move in enumerate(game):
             if i == len(boards)-1:
@@ -43,7 +43,7 @@ class dataSet():
             if i > 0:
                 boards[i+1]=boards[i].copy()
             #A piece has been place on the board of color -1 then it is 1's turn
-            boards[i][coordTOindex.index((x,y))] = (-1)**(i+1)
+            boards[i][self.coordTOindex.index((x,y))] = (-1)**(i+1)
             #expected Move is a move of color ((-1)**(i+1))*(-1) to move[i+1]
             boards[i][64] = ((-1)**(i+1))*(-1)
         return moves,boards
@@ -51,7 +51,7 @@ class dataSet():
     def flatten(self):
         for moves, boards in self.games:
             for i in range(len(moves) - 1):  # avoid out-of-bound
-                self.x_train.append(boards[i].reshape(65, 1))
+                self.x_data.append(boards[i].reshape(65, 1))
                 x, y = moves[i + 1]
-                label = self.coord_to_index[(x, y)]  # label ∈ [0, 63]
-                self.y_train.append(label)
+                label = self.coordTOindex.index((x, y))  # label ∈ [0, 63]
+                self.y_data.append(label)

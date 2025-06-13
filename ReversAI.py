@@ -91,11 +91,11 @@ class batch:
         
         def Grab(self,indices,x_data,y_data):
             #changed to by 8 by 8
-            X_batch = np.zeros((self.size,65,1))
+            X_batch = np.zeros((self.size,65))
             Y_batch = np.zeros(self.size,dtype=int)
 
             for i in range(0,len(indices)):    
-                X_batch[i] = x_data[indices[i]]  
+                X_batch[i] = x_data[indices[i]].reshape(65)  
                 Y_batch[i] = y_data[indices[i]]  
 
             Y_batch_one_hot = np.zeros((self.size, self.num_classes))
@@ -120,8 +120,24 @@ class Epoch:
 
     def randTrain(self,NN):
         for i in self.batches:
-            NN.backprop(i) 
+            NN.backprop(i)
+        #print("trained like magnus")
 
+    def kmc(self,NN):
+        k = len(self.batches)
+        for i in range(len(self.batches)-1):
+            NN.backprop(self.batches[i])
+        return self.test(NN,self.batches[len(self.batches)-1])
+    
+    def test(self,NN,batch):
+        sum=0
+        for i,yTrue in enumerate(batch.expected):
+            if NN.guess(batch.input[i]) == np.argmax(yTrue):
+                sum+=1
+        return sum/len(batch.input)
+
+    
+        
 
 
 
