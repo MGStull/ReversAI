@@ -17,7 +17,7 @@ class SelfAttention(nn.Module):
 
         self.fc_out = nn.Linear(heads*self.head_dim, embed_size)
 
-    def forward(self,values,keys,query,mask):
+    def forward(self,values,keys,query,mask, illegal_mask):
         N = query.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], query.shape[1]
 
@@ -36,6 +36,11 @@ class SelfAttention(nn.Module):
         
         if mask is not None:
             energy = energy.masked_fill(mask == 0, float("-1e20"))
+        
+        if illegal_mask is not None:
+            if illegal_mask.dim() == 2:
+                illegal_mask = illegal_mask.unsqueeze(1).unsqueeze(1)
+            energy = energy.masked_fill(illegal_mask == 0, float("-1e20"))
 
         attention = torch.softmax(energy/(self.embed_size**(1/2)),dim=3)
 
@@ -59,177 +64,101 @@ class TransformerBlock(nn.Module):
             nn.Linear(forward_expansion*embed_size, embed_size)
         )
         self.dropout = nn.Dropout(dropout)
-    def forward(self, value, key, query, mask):
-        attention = self.attention(value, key, query, mask)
+    def forward(self, value, key, query, mask, illegal_mask = None):
+        attention = self.attention(value, key, query, mask, illegal_mask)
         
         x = self.dropout(self.norm1(attention + query))
         forward = self.feed_forward(x)
         out = self.dropout(self.norm2(forward+x))
         return out
 
-class Encoder(nn.Module):
-    def __init__(
-        self,
-        src_vocab_size,
-        embed_size,
-        num_layers,
-        heads,
-        device,
-        forward_expansion,
-        dropout,
-        max_length,
-        ):
-        super(Encoder,self).__init__()
+class ReversiBotDecoder(nn.Module):
+    def __init__(self, vocab_size=64, embed_size=128, num_layers=4, heads=8,dropout=0.1,device='cuda',max_length=60, forward_expansion=4):
+        super(ReversiBotDecoder,self).__init__()
+
+        self.device = device
+        self.vocab_size = vocab_size
         self.embed_size = embed_size
-        self.device = device
-        self.word_embedding = nn.Embedding(src_vocab_size,embed_size)
-        self.position_embedding = nn.Embedding(max_length,embed_size)
-        self.layers = nn.ModuleList(
-            [
-                TransformerBlock(
-                    embed_size,
-                    heads,
-                    dropout=dropout,
-                    forward_expansion=forward_expansion,
-                    )
-            ]
-        )
-        self.dropout = nn.Dropout(dropout)
+        self.max_length = max_length
 
-    def forward(self, x, mask):
-        N, seq_length = x.shape
-        positions = torch.arange(0,seq_length).expand(N, seq_length).to(self.device)
+        self.word_embedding = nn.Embedding(vocab_size, embed_size)
+        self.position_embedding =  nn.Embedding(max_length,embed_size)
+        self.fc_out = nn.Linear(embed_size,vocab_size)
+        self.dropout_layer = nn.Dropout(dropout)
 
-        out = self.dropout(self.word_embedding(x)+self.position_embedding(positions))
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                embed_size,
+                heads,
+                dropout,
+                forward_expansion
+            ) for _ in range(num_layers)
+        ])
 
+    def forward(self, move_sequence, illegal_moves=None):
+        N,seq_length = move_sequence.shape
+        positions = torch.arange(0, seq_length).expand(N,seq_length).to(self.device)
+        embed_moves = self.word_embedding(move_sequence)
+        embedded_positions = self.position_embedding(positions)
+        x = self.dropout_layer(embed_moves+embedded_positions)
+        casual_mask = self.make_casual_mask(seq_length,N)
+        illegal_mask = self.make_illegal_moves_mask(illegal_moves)
         for layer in self.layers:
-            out = layer(out, out, out, mask)
-        return out
+            x = layer(x, x, x, casual_mask, illegal_mask)
+        logits = self.fc_out(x)
+        return logits
 
-class DecoderBlock(nn.Module):
-    def __init__(self, embed_size, heads, forward_expansion, dropout, device):
-        super(DecoderBlock,self).__init__()
-        self.attention = SelfAttention(embed_size, heads)
-        self.norm = nn.LayerNorm(embed_size)
-        self.transformer_block = TransformerBlock(
-            embed_size,
-            heads,
-            dropout,
-            forward_expansion
-        )
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self,x,value,key,src_mask,trg_mask):
-        attention = self.attention(x,x,x,trg_mask)
-        query = self.dropout(self.norm(attention+x))
-        out = self.transformer_block(value,key,query,src_mask)
-        return out
-
-class Decoder(nn.Module):
-    def __init__(
-        self,
-        trg_vocab_size,
-        embed_size,
-        num_layers,
-        heads,
-        forward_expansion,
-        dropout,
-        device,
-        max_length,
-    ):
-        super(Decoder,self).__init__()
-        self.device = device
-        self.word_embedding = nn.Embedding(trg_vocab_size, embed_size)
-        self.position_embedding  = nn.Embedding(max_length, embed_size)
+    def make_casual_mask(self, seq_length, batch_size):
+        mask = torch.tril(torch.ones(seq_length, seq_length))
+        mask = mask.expand((batch_size,1,seq_length,seq_length))
+        mask = mask.to(self.device)
+        return mask
+    def make_illegal_moves_mask(self, illegal_moves):
         
-        self.layers = nn.ModuleList(
-            [DecoderBlock(embed_size,heads,forward_expansion,dropout,device)
-            for _ in range(num_layers)]
-        )
-        self.fc_out = nn.Linear(embed_size, trg_vocab_size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self,x,enc_out,src_mask,trg_mask):
-        N, seq_length = x.shape
-        positions = torch.arange(0,seq_length).expand(N,seq_length).to(self.device)
-        x = self.dropout((self.word_embedding(x)+self.position_embedding(positions)))
-
-        for layer in self.layers:
-            x = layer(x,enc_out,enc_out,src_mask, trg_mask)
-
-        out = self.fc_out(x)
-        return out
+        if illegal_moves is None:
+            return None
+        if illegal_moves.dim() == 2:
+            illegal_mask = illegal_moves.unsqueeze(1)
+        else:
+            illegal_mask = illegal_moves
+        
+        return illegal_mask.to(self.device)
+        
 
 
-class Transformer(nn.Module):
-    def __init__(
-        self,
-        src_vocab_size,
-        trg_vocab_size,
-        src_pad_idx,
-        trg_pad_idx,
-        embed_size = 256,
+
+
+
+
+
+
+if __name__ == "__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 64 possible moves on 8x8 board
+    model = ReversiBotDecoder(
+        vocab_size=64,
+        embed_size=128,
         num_layers=4,
-        forward_expansion =4,
-        heads = 8,
-        dropout=0.1,
-        device="cuda",
-        max_length=60
-    ):
-        super(Transformer, self).__init__()
-        
-        self.encoder = Encoder(
-            src_vocab_size,
-            embed_size,
-            num_layers,
-            heads,
-            device,
-            forward_expansion,
-            dropout,
-            max_length
-        )
-        
-        self.decoder = Decoder(
-            trg_vocab_size,
-            embed_size,
-            num_layers,
-            heads,
-            forward_expansion,
-            dropout,
-            device,
-            max_length
-        )
-
-        self.srce_pad_idx =  src_pad_idx
-        self.trg_pad_idx =  trg_pad_idx
-        self.device = device
+        heads=8,
+        device=device
+    ).to(device)
     
-    def make_src_mask(self,src):
-        src_mask = (src != self.srce_pad_idx).unsqueeze(1).unsqueeze(2)
-        return src_mask.to(self.device)
+    batch_size = 4
+    seq_length = 30
     
-    def make_trg_mask(self, trg):
-        N, trg_len = trg.shape
-        trg_mask = torch.tril((torch.ones(trg_len,trg_len))).expand(N,1,trg_len,trg_len)
-        return trg_mask.to(self.device)
-
-    def forward(self, src, trg):
-        src_mask = self.make_src_mask(src)
-        trg_mask = self.make_trg_mask(trg)
-        enc_src = self.encoder(src,src_mask)
-        out = self.decoder(trg, enc_src, src_mask, trg_mask)
-        return out
-
-
-
-
-src_pad_idx = 0
-trg_pad_idx = 0
-src_vocab_size = 64
-trg_vocab_size = 3
-model = Transformer(src_vocab_size,trg_vocab_size,src_pad_idx,trg_pad_idx).to(device)
-out = model(x,trg[:,:-1])
-print(out.shape)
-
-
-##Additions needed to this code: Mask illegal moves so that the model cannot choose moves that are illegal
+    # Sequence of moves
+    move_sequence = torch.randint(0, 64, (batch_size, seq_length)).to(device)
+    
+    # Some moves are illegal
+    illegal_moves = torch.ones(batch_size, 64).to(device)
+    illegal_moves[:, 0:5] = 0  # Moves 0-4 are illegal
+    
+    # Forward pass
+    logits = model(move_sequence, illegal_moves)
+    print(f"Output shape: {logits.shape}")  # (batch_size, seq_length, 64)
+    
+    # Get next move prediction
+    next_move_logits = logits[:, -1, :]
+    next_move = torch.argmax(next_move_logits, dim=1)
+    print(f"Predicted next moves: {next_move}")
