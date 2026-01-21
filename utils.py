@@ -16,7 +16,8 @@ class OthelloDataset(Dataset):
         game_id = row[0]
         winner = torch.tensor(int(row[1]), dtype=torch.long)
         moves_str = row[2]
-        
+        illegal_moves = '|'.split(row[3])
+                
         # Convert moves string to tokens
         moves = self._chunk_string(moves_str)
         
@@ -60,6 +61,10 @@ def collate_fn(batch):
         'turns': padded_turns
     }
 
+
+    
+#Testing block
+
 #Just manually split into test and train set for ease
 csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train.csv"
 
@@ -98,30 +103,7 @@ dataloader_test = DataLoader(
     num_workers=0,
     collate_fn=collate_fn
 )
-# Example: iterate through one batch
-print(f"\nDataset size: {len(train_dataset)}")
-print(f"DataLoader created with batch size: {batch_size}\n")
-print(f"\nDataset size: {len(test_dataset)}")
-print(f"DataLoader created with batch size: {batch_size}\n")
-for batch in dataloader_train:
-    print("Batch example:")
-    print(f"  Moves shape: {batch['moves'].shape}")  # (batch_size, max_sequence_length)
-    print(f"  Winners shape: {batch['winners'].shape}")  # (batch_size,)
-    print(f"  Turns shape: {batch['turns'].shape}")  # (batch_size,)
-    print(f"  First game moves: {batch['moves'][0][:10]}")  # First 10 move indices
-    print(f"  Winners in batch: {batch['winners'][:5]}")
-    print(f"  Turns in batch: {batch['turns'][:5]}")  # -1 (black), 0 (no moves), 1 (white)
-    break  # Just show first batch
-for batch in dataloader_test:
-    print("Batch example:")
-    print(f"  Moves shape: {batch['moves'].shape}")  # (batch_size, max_sequence_length)
-    print(f"  Winners shape: {batch['winners'].shape}")  # (batch_size,)
-    print(f"  Turns shape: {batch['turns'].shape}")  # (batch_size,)
-    print(f"  First game moves: {batch['moves'][0][:10]}")  # First 10 move indices
-    print(f"  Winners in batch: {batch['winners'][:5]}")
-    print(f"  Turns in batch: {batch['turns'][:5]}")  # -1 (black), 0 (no moves), 1 (white)
-    break  # Just show first batch
 
-print("\nToken to Index mapping (first 5):")
-for token, idx in list(token_to_idx.items())[:5]:
-    print(f"  {token} -> {idx}")
+
+
+
