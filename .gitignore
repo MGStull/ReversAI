@@ -1,0 +1,4 @@
+Data/othello_dataset_test_with_illegal_moves.csv
+Data/othello_dataset_test_with_illegal_moves_illegal_moves.pkl
+Data/othello_dataset_train_with_illegal_moves.csv
+Data/othello_dataset_train_with_illegal_moves_illegal_moves.pkl
