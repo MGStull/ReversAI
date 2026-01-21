@@ -157,9 +157,9 @@ def get_illegal_moves_for_sequence(moves_str, token_to_idx, idx_to_token, token_
 # string in one_hot of illegal moves if the move is legal it will be set to 1 n
 # if the move is legal it is set to 0
 def legal_to_illegal(legal_moves_sequence,idx_to_token, token_to_hot):
-    illegal_moves = ['1']*64
+    illegal_moves = ['0']*64
     for legal_move in  legal_moves_sequence:
-        illegal_moves[token_to_hot[idx_to_token[legal_move]]] = '0'
+        illegal_moves[token_to_hot[idx_to_token[legal_move]]] = '1'
     return ''.join(illegal_moves)
             
 

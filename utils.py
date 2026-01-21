@@ -16,10 +16,10 @@ class OthelloDataset(Dataset):
     
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        game_id = row[0]
-        winner = torch.tensor(int(row[1]), dtype=torch.long)
-        moves_str = row[2]
-        illegal_masks = row[3].split('|')
+        game_id = row['game_id']
+        winner = torch.tensor(int(row['winner']), dtype=torch.long)
+        moves_str = row["moves"]
+        illegal_masks = row["illegal_moves"].split('|')
         illegal_masks_tensor = torch.tensor([[int(bit) for bit in mask] for mask in illegal_masks], dtype=torch.float32)
                 
         # Convert moves string to tokens

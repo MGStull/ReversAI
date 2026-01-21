@@ -102,10 +102,16 @@ class ReversiBotDecoder(nn.Module):
         embedded_positions = self.position_embedding(positions)
         x = self.dropout_layer(embed_moves+embedded_positions)
         casual_mask = self.make_casual_mask(seq_length,N)
-        illegal_mask = self.make_illegal_moves_mask(illegal_moves)
+
         for layer in self.layers:
-            x = layer(x, x, x, casual_mask, illegal_mask)
+            x = layer(x, x, x, casual_mask, illegal_mask=None)
         logits = self.fc_out(x)
+
+        if illegal_moves is not None:
+            illegal_moves = illegal_moves.to(self.device)
+            illegal_moves_expanded = illegal_moves_expanded = ellegal_moves.unsqueeze(1)
+            logits = logits.masked_fill(illegal_moves_expanded==0, float("-1e20"))
+            
         return logits
 
     def make_casual_mask(self, seq_length, batch_size):
@@ -113,23 +119,6 @@ class ReversiBotDecoder(nn.Module):
         mask = mask.expand((batch_size,1,seq_length,seq_length))
         mask = mask.to(self.device)
         return mask
-    def make_illegal_moves_mask(self, illegal_moves):
-        
-        if illegal_moves is None:
-            return None
-        if illegal_moves.dim() == 2:
-            illegal_mask = illegal_moves.unsqueeze(1)
-        else:
-            illegal_mask = illegal_moves
-        
-        return illegal_mask.to(self.device)
-        
-
-
-
-
-
-
 
 
 if __name__ == "__main__":
