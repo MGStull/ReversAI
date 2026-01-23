@@ -1,0 +1,7 @@
+V1 Architecture
+    1. Train to predict moves of players, the data set is the top 100 rated players
+    2. Train with masking of illegal moves
+    3. Provide whos turn it is to provide context.
+V1 proggress log
+    - Forgot to include embedding for turn's to provide context for whether it is black, white, or game over, so the model failed to learn.
+        *Will add this as a seperate embedding to differentiate the context of the which player is playing using my turn tensor.

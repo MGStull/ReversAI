@@ -22,8 +22,9 @@ def train_epoch(model, dataloader, optimizer, loss_fn, device):
     for batch in pbar:
         moves = batch['moves'].to(device)
         illegal_moves_per_timestamp = batch['illegal_moves'].to(device)
+        turns = batch['turns'].to(device)
 
-        logits = model(moves, illegal_moves = None)
+        logits = model(moves, turns=turns,illegal_moves = None)
 
         input_moves = moves[:,:-1]
         target_moves = moves[:,1:]
@@ -66,8 +67,8 @@ def evaluate(model,dataloader,loss_fn,device):
         for batch in pbar:
             moves = batch['moves'].to(device)
             illegal_moves_per_timestamp = batch['illegal_moves'].to(device)
-
-            logits = model(moves, illegal_moves = None)
+            turns = batch['turns'].to(device)
+            logits = model(moves,turns=turns, illegal_moves = None)
 
             input_moves = moves[:,:-1]
             target_moves = moves[:,1:]
@@ -85,7 +86,7 @@ def evaluate(model,dataloader,loss_fn,device):
             logits_flat[illegal_moves_flat == 0] =float("-1e20")
 
             loss = loss_fn(logits_flat, target_flat)
-            total_loss += loss
+            total_loss += loss.item()
             predictions = torch.argmax(logits_flat,dim=1)
             mask = illegal_moves_flat.gather(1, target_flat.unsqueeze(1)).squeeze()
             correct = (predictions == target_flat).sum().item()
@@ -114,7 +115,7 @@ def main():
     
     try:
         train_dataset = OthelloDataset(train_csv_path, token_to_hot)
-        batch_size = 32
+        batch_size = 128
         dataloader_train = DataLoader(
             train_dataset,
             batch_size=batch_size,
@@ -127,20 +128,20 @@ def main():
         print("File not Found or Loaded")
     model = ReversiBotDecoder(
         vocab_size=64,
-        embed_size=128,
-        num_layers=4,
-        heads=8,
-        dropout=0.1,
+        embed_size=512,
+        num_layers=8,
+        heads=16,
+        dropout=0.05,
         device=device,
         max_length=60,
-        forward_expansion=4
+        forward_expansion=8
     ).to(device)
 
-    optimizer = optim.Adam(model.parameters(model.parameters),lr = 1e-3)
+    optimizer = optim.Adam(model.parameters(),lr = 5e-4)
     loss_fn = nn.CrossEntropyLoss(reduction='mean')
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2)
 
-    num_epochs = 3
+    num_epochs = 30
     best_val_loss = float('inf')
     patience_counter = 0
     max_patience = 5
@@ -152,11 +153,11 @@ def main():
         print(f"Epoch {epoch+1}/{num_epochs}")
 
         train_loss = train_epoch(model,dataloader_train,optimizer, loss_fn, device)
-        train_record.append(train_loss.cpu().item())
+        train_record.append(train_loss)
 
         val_loss, val_accurracy = evaluate(model, dataloader_train, loss_fn, device)
         print(f"Validation Accurracy Current: {val_accurracy*100}%")
-        val_record.append(val_loss.cpu().item())
+        val_record.append(val_loss)
 
         if val_loss< best_val_loss:
             best_val_loss = val_loss
@@ -166,7 +167,8 @@ def main():
         else:
             patience_counter += 1
             if patience_counter >= max_patience:
-                pass
+                print("Learning has stabalized")
+                break
                 
     print("Training Complete!")
     plt.plot(range(len(train_record)),train_record, label = 'Training Loss', color='red')

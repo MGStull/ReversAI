@@ -83,6 +83,7 @@ class ReversiBotDecoder(nn.Module):
 
         self.word_embedding = nn.Embedding(vocab_size, embed_size)
         self.position_embedding =  nn.Embedding(max_length,embed_size)
+        self.turn_embedding = nn.Embedding(3,embed_size)
         self.fc_out = nn.Linear(embed_size,vocab_size)
         self.dropout_layer = nn.Dropout(dropout)
 
@@ -95,12 +96,21 @@ class ReversiBotDecoder(nn.Module):
             ) for _ in range(num_layers)
         ])
 
-    def forward(self, move_sequence, illegal_moves=None):
+    def forward(self, move_sequence, turns=None,illegal_moves=None):
         N,seq_length = move_sequence.shape
         positions = torch.arange(0, seq_length).expand(N,seq_length).to(self.device)
         embed_moves = self.word_embedding(move_sequence)
         embedded_positions = self.position_embedding(positions)
-        x = self.dropout_layer(embed_moves+embedded_positions)
+        if turns is not None:
+            turns_adjusted = turns.clone()
+            turns_adjusted[turns == -1] = 1
+            turns_adjusted[turns == 1] = 2
+            turns_adjusted[turns == 0] = 0
+
+            embed_turns = self.turn_embedding(turns_adjusted.long())
+            x = self.dropout_layer(embed_moves + embedded_positions + embed_turns)
+        else: 
+            x = self.dropout_layer(embed_moves + embedded_positions + embed_turns)
         casual_mask = self.make_casual_mask(seq_length,N)
 
         for layer in self.layers:
@@ -121,33 +131,3 @@ class ReversiBotDecoder(nn.Module):
         return mask
 
 
-if __name__ == "__main__":
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # 64 possible moves on 8x8 board
-    model = ReversiBotDecoder(
-        vocab_size=64,
-        embed_size=128,
-        num_layers=4,
-        heads=8,
-        device=device
-    ).to(device)
-    
-    batch_size = 4
-    seq_length = 30
-    
-    # Sequence of moves
-    move_sequence = torch.randint(0, 64, (batch_size, seq_length)).to(device)
-    
-    # Some moves are illegal
-    illegal_moves = torch.ones(batch_size, 64).to(device)
-    illegal_moves[:, 0:5] = 0  # Moves 0-4 are illegal
-    
-    # Forward pass
-    logits = model(move_sequence, illegal_moves)
-    print(f"Output shape: {logits.shape}")  # (batch_size, seq_length, 64)
-    
-    # Get next move prediction
-    next_move_logits = logits[:, -1, :]
-    next_move = torch.argmax(next_move_logits, dim=1)
-    print(f"Predicted next moves: {next_move}")
