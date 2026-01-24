@@ -17,11 +17,20 @@ class OthelloDataset(Dataset):
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         game_id = row['game_id']
-        winner = torch.tensor(int(row['winner']), dtype=torch.long)
+        winner_val = int(row['winner'])
+        # Remap from [-1, 0, 1] to [0, 1, 2]
+        if winner_val == -1:
+            winner = torch.tensor(0, dtype=torch.long)  # Black wins
+        elif winner_val == 0:
+            winner = torch.tensor(2, dtype=torch.long)  # Draw
+        else:  # winner_val == 1
+            winner = torch.tensor(1, dtype=torch.long)  # White wins
         moves_str = row["moves"]
         illegal_masks = row["illegal_moves"].split('|')
+        # Filter out empty strings
+        illegal_masks = [mask for mask in illegal_masks if len(mask) == 64]
         illegal_masks_tensor = torch.tensor([[int(bit) for bit in mask] for mask in illegal_masks], dtype=torch.float32)
-                
+                    
         # Convert moves string to tokens
         moves = self._chunk_string(moves_str)
         

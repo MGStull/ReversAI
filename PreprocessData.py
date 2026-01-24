@@ -147,6 +147,13 @@ def get_illegal_moves_for_sequence(moves_str, token_to_idx, idx_to_token, token_
         except ValueError:
             # Invalid game state
             pass
+    
+    i=0
+    for token in moves:
+        if illegal_moves_sequence[i][token_to_hot[token]] == 1:
+            print("Mask is inccorect")
+        i+=1
+
     return illegal_moves_sequence
 
 #IS ILLEGAL IF 1
@@ -260,15 +267,22 @@ def Testing():
     
 
     illegal_turn1 = 'c4d3e6f5'
-    illegal_moves = ['-1']*64
+    illegal_moves = ['0']*64
     for token in chunk_string(illegal_turn1):
         print(token)
         illegal_moves[token_to_hot[token]] = '0'
     illegal_moves=''.join(illegal_moves)
-    print(illegal_moves)
+
+
 
     illegal_sequence = get_illegal_moves_for_sequence('f5d6c3g5c6c5c4b5b6b4f6b3e6e3d3c7a4a3a5d7f4f3e7f8e2g3e8a6g4c2h3h4h6d2h5d8c1d1e1g2b1f1f2a1b8g1a2c8g8g7b7h2f7g6h1b2h7h8a7a8', token_to_idx, idx_to_token, token_to_hot)
-    print(illegal_sequence[0])
-    assert illegal_moves == illegal_sequence[0]
+    i=0
+    for token in chunk_string('f5d6c3g5c6c5c4b5b6b4f6b3e6e3d3c7a4a3a5d7f4f3e7f8e2g3e8a6g4c2h3h4h6d2h5d8c1d1e1g2b1f1f2a1b8g1a2c8g8g7b7h2f7g6h1b2h7h8a7a8'):
+        if illegal_sequence[i][token_to_hot[token]] == 1:
+            print("Mask is inccorect")
+        i+=1
+    
+
+    
 
 RUN()

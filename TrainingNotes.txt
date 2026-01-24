@@ -5,3 +5,10 @@ V1 Architecture
 V1 proggress log
     - Forgot to include embedding for turn's to provide context for whether it is black, white, or game over, so the model failed to learn.
         *Will add this as a seperate embedding to differentiate the context of the which player is playing using my turn tensor.
+    #After Exstensive Testing Method of solution was deemed ineffective
+
+V2 Architecture
+    1. Train to predict the winner, then try to see how much it changes the predicted winner
+    2. Create an efficient search engine based on possible moves to decide the best next move
+
+V2 Proggress log
