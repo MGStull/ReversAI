@@ -118,7 +118,8 @@ class ReversiBotDecoder(nn.Module):
         logits = self.fc_out(x)
 
         if illegal_moves is not None:
-            illegal_moves_expanded = illegal_moves
+            illegal_moves = illegal_moves.to(self.device)
+            illegal_moves_expanded = illegal_moves_expanded = illegal_moves.unsqueeze(1)
             logits = logits.masked_fill(illegal_moves_expanded==0, float("-1e20"))
             
         return logits

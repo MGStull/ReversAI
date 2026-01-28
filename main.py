@@ -24,13 +24,14 @@ def train_epoch(model, dataloader, optimizer, loss_fn, device):
         turns = batch['turns'].to(device)
         winners = batch['winners'].to(device).long()
 
-        logits = model( moves, turns=turns, illegal_moves=None)
+        logits = model( moves, turns=turns)
 
         loss = loss_fn(logits, winners)
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
         optimizer.step()
 
         total_loss += loss.item()
@@ -54,7 +55,7 @@ def evaluate(model,dataloader,loss_fn,device):
             turns = batch['turns'].to(device)
             winners = batch['winners'].to(device).long()
 
-            logits = model(moves,turns=turns, illegal_moves = None)
+            logits = model(moves,turns=turns)
 
             loss = loss_fn(logits, winners)
 
@@ -70,12 +71,14 @@ def evaluate(model,dataloader,loss_fn,device):
                 class_total[class_id] += class_mask.sum().item()
                          
     avg_loss = total_loss/num_batches
-    accurracy = total_correct/(num_batches*logits.shape[0])
+    accurracy = total_correct/(2001)
+    print(f"Validation Accurracy Current: {accurracy*100:.1f}% loss: {avg_loss}")
+    classes = {0:'black',1:'white',2:'draw'}
     for class_id in range(3):
             if class_total[class_id] > 0:
                 class_acc = class_correct[class_id] / class_total[class_id]
-                print(f"  Class {class_id}: {class_acc*100:.1f}%")              
-    return avg_loss, accurracy
+                print(f"  {classes[class_id]}: {class_acc*100:.1f}%")              
+    return avg_loss
 
 
 def get_class_weights(dataset):
@@ -90,11 +93,43 @@ def get_class_weights(dataset):
     return class_weights
 
 
+def load_model(path, device='cuda'):
+    """Load the saved model from disk"""
+    # Initialize model with the same hyperparameters used in training
+    model = ReversiBotDecoder(
+        vocab_size=64,
+        embed_size=512,
+        num_layers=8,
+        heads=16,
+        dropout=0.05,
+        device=device,
+        max_length=60,
+        forward_expansion=4,
+        num_classes=3
+    ).to(device)
+    
+    # Load the state dict
+    state_dict = torch.load(path, map_location=device)
+    
+    # Load weights into model
+    model.load_state_dict(state_dict)
+    
+    # Set to evaluation mode
+    model.eval()
+    
+    return model
+
+
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
 
+    load = False
+    if input("Load Model y or (n): ") == 'y': 
+        load = True 
+
+    #Neccessary Conversion DICT init
     letters = 'abcdefgh'
     numbers = '12345678'
     token_to_hot = {}
@@ -105,78 +140,93 @@ def main():
             token_to_hot[token] = i 
             i = i+1
 
+
+    #Data Initialization and Data parameters
     train_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train_with_illegal_moves.csv"
     validate_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_validate_with_illegal_moves.csv"
-    try:
-        train_dataset = OthelloDataset(train_csv_path, token_to_hot)
-        batch_size = 256
-        dataloader_train = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=collate_fn
-        )
-        validate_dataset = OthelloDataset(validate_csv_path, token_to_hot)
-        batch_size = 128
-        dataloader_validate = DataLoader(
-            validate_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=collate_fn
-        )
-        print(f"Loaded {len(train_dataset)} training games")
-    except FileNotFoundError:
-        print("File not Found or Loaded")
-    model = ReversiBotDecoder(
+
+    batch_size = 256
+        #Train set Init
+    train_dataset = OthelloDataset(train_csv_path, token_to_hot)
+    dataloader_train = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=collate_fn
+    )
+        #Validation Init
+    validate_dataset = OthelloDataset(validate_csv_path, token_to_hot)
+    dataloader_validate = DataLoader(
+        validate_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=collate_fn
+    )
+
+    #Model Initialization and optimization
+    model_pth = os.path.join('ReversAI','best_reversi_model.pth')
+    
+    if load == True:
+        model = load_model(model_pth)
+    else: 
+        model = ReversiBotDecoder(
         vocab_size=64,
         embed_size=256,
-        num_layers=6,
-        heads=16,
-        dropout=0.2,
+        num_layers=3,
+        heads=4,
+        dropout=0.1,
         device=device,
         max_length=60,
         forward_expansion=4,
         num_classes=3
-    ).to(device)
+        ).to(device)
 
-    optimizer = optim.Adam(model.parameters(),lr = 2e-4)
+    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=1e-5)
 
     class_weights = get_class_weights(train_dataset).to(device)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).to(device)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2)
+    
+    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
+    main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        1,
+        1e-5
+    )
+    # Combine them
+    scheduler = optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[10]
+    )
 
+    #Training Length and Loop initialization
     num_epochs = 100
     best_val_loss = float('inf')
-    patience_counter = 0
-    max_patience = 100
-
     train_record = []
     val_record = []
+
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
 
+        #Train
         train_loss = train_epoch(model,dataloader_train,optimizer, loss_fn, device)
-        train_record.append(train_loss)
+        scheduler.step()
+        #Validate
+        val_loss= evaluate(model, dataloader_validate, loss_fn, device)
 
-        val_loss, val_accurracy= evaluate(model, dataloader_validate, loss_fn, device)
-        print(f"Validation Accurracy Current: {val_accurracy*100}%")
         
+        #Record Keeping
+        train_record.append(train_loss)
         val_record.append(val_loss)
 
+        #Save Model Conditional
         if val_loss< best_val_loss:
             best_val_loss = val_loss
-            patience_counter = 0
-            torch.save(model.state_dict(), 'best_reversi_model.pth')
+            torch.save(model.state_dict(),model_pth)
             print("NEW BEST MODEL!!")
-        else:
-            patience_counter += 1
-            if patience_counter >= max_patience:
-                print("Learning has stabalized")
-                break
-                
+
+    #Performance Review
     print("Training Complete!")
     plt.plot(range(len(train_record)),train_record, label = 'Training Loss', color='red')
     plt.plot(range(len(val_record)),val_record, label = 'Validation Loss', color='blue')
