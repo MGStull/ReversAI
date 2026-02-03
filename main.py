@@ -71,7 +71,8 @@ def evaluate(model,dataloader,loss_fn,device):
                 class_total[class_id] += class_mask.sum().item()
                          
     avg_loss = total_loss/num_batches
-    accurracy = total_correct/(2001)
+    total_samples = sum(class_total)
+    accurracy = total_correct/(total_samples)
     print(f"Validation Accurracy Current: {accurracy*100:.1f}% loss: {avg_loss}")
     classes = {0:'black',1:'white',2:'draw'}
     for class_id in range(3):
@@ -82,14 +83,18 @@ def evaluate(model,dataloader,loss_fn,device):
 
 
 def get_class_weights(dataset):
+
     class_counts = [0, 0, 0]
-    for idx in range(len(dataset)):
-        winner = int(dataset.df.iloc[idx]['winner'])
-        winner_remapped = {-1: 0, 0: 2, 1: 1}[winner]
-        class_counts[winner_remapped] += 1
+    
+    # Count from the expanded examples in the dataset
+    for example in dataset.examples:
+        winner = example['winner'].item()  # Get the tensor value
+        class_counts[winner] += 1
 
     total = sum(class_counts)
-    class_weights = torch.tensor([total/count for count in class_counts], dtype=torch.float32)
+    class_weights = torch.tensor([total / count for count in class_counts], dtype=torch.float32)
+    print(f"Class weights: {class_weights}")
+    print(f"Class counts: black={class_counts[0]}, white={class_counts[1]}, draw={class_counts[2]}")
     return class_weights
 
 
@@ -142,10 +147,10 @@ def main():
 
 
     #Data Initialization and Data parameters
-    train_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train_with_illegal_moves.csv"
-    validate_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_validate_with_illegal_moves.csv"
+    train_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train.csv"
+    validate_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_validate.csv"
 
-    batch_size = 256
+    batch_size = 128
         #Train set Init
     train_dataset = OthelloDataset(train_csv_path, token_to_hot)
     dataloader_train = DataLoader(
@@ -174,33 +179,22 @@ def main():
         model = ReversiBotDecoder(
         vocab_size=64,
         embed_size=256,
-        num_layers=3,
+        num_layers=5,
         heads=4,
-        dropout=0.1,
+        dropout=0.15,
         device=device,
         max_length=60,
-        forward_expansion=4,
+        forward_expansion=3,
         num_classes=3
         ).to(device)
 
-    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=1e-5)
+    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=5e-5)
 
     class_weights = get_class_weights(train_dataset).to(device)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).to(device)
     
-    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=10)
-    main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        1,
-        1e-5
-    )
-    # Combine them
-    scheduler = optim.lr_scheduler.SequentialLR(
-        optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[10]
-    )
-
     #Training Length and Loop initialization
-    num_epochs = 100
+    num_epochs = 20
     best_val_loss = float('inf')
     train_record = []
     val_record = []
@@ -211,7 +205,6 @@ def main():
 
         #Train
         train_loss = train_epoch(model,dataloader_train,optimizer, loss_fn, device)
-        scheduler.step()
         #Validate
         val_loss= evaluate(model, dataloader_validate, loss_fn, device)
 

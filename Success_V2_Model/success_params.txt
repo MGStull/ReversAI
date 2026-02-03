@@ -1,0 +1,53 @@
+First SuccessFull final Results Params
+    batch_size = 128
+    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=5e-5)
+    model = ReversiBotDecoder(
+        vocab_size=64,
+        embed_size=256,
+        num_layers=5,
+        heads=4,
+        dropout=0.05,
+        device=device,
+        max_length=60,
+        forward_expansion=3,
+        num_classes=3
+        ).to(device)
+
+Reproducibility Run 
+    batch_size = 128
+    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=5e-5)
+    model = ReversiBotDecoder(
+        vocab_size=64,
+        embed_size=256,
+        num_layers=5,
+        heads=4,
+        dropout=0.1,
+        device=device,
+        max_length=60,
+        forward_expansion=3,
+        num_classes=3
+        ).to(device)
+    Validation Accurracy Current: 59.5% loss: 0.8400163914523399
+    black: 58.9%
+    white: 61.0%
+    draw: 33.9%
+    NEW BEST MODEL!!
+
+Successfull Params 2
+    batch_size = 128
+    optimizer = optim.AdamW(model.parameters(),lr = 1e-4, weight_decay=5e-5)
+    model = ReversiBotDecoder(
+        vocab_size=64,
+        embed_size=256,
+        num_layers=5,
+        heads=4,
+        dropout=0.1,
+        device=device,
+        max_length=60,
+        forward_expansion=3,
+        num_classes=3
+        ).to(device)
+
+
+
+

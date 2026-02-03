@@ -253,7 +253,8 @@ def Testing():
     print("\nLegal moves for Black:", game.get_legal_moves(-1))
     game.printBoard()
 
-    
+    game.get_legal_moves()
+
     print('\nMaking move e6 for Black...')
     game.make_move('e6', -1, token_to_idx)
     game.printBoard()
@@ -282,7 +283,4 @@ def Testing():
             print("Mask is inccorect")
         i+=1
     
-
-    
-
-RUN()
+Testing()

@@ -6,57 +6,68 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 class OthelloDataset(Dataset):
-    def __init__(self, csv_path, token_to_hot):
+    def __init__(self, csv_path, token_to_hot,min_moves=4):
         self.df = pd.read_csv(csv_path)
-        #for naming convention retain the token to hot instead of token to idx
+        self.min_moves = min_moves
+        self.examples = []
         self.token_to_hot = token_to_hot
+
+        for idx, row in self.df.iterrows():
+            moves_str = row['moves']
+            winner =torch.tensor(
+                {-1: 0, 0: 2, 1: 1}[int(row['winner'])],
+                dtype = torch.long
+            )
+            partial_examples = generate_partial_games(moves_str, winner, token_to_hot, self.min_moves)
+            self.examples.extend(partial_examples)
         
     def __len__(self):
-        return len(self.df)
+        return len(self.examples)
     
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        game_id = row['game_id']
-        winner_val = int(row['winner'])
-        # Remap from [-1, 0, 1] to [0, 1, 2]
-        if winner_val == -1:
-            winner = torch.tensor(0, dtype=torch.long)  # Black wins
-        elif winner_val == 0:
-            winner = torch.tensor(2, dtype=torch.long)  # Draw
-        else:  # winner_val == 1
-            winner = torch.tensor(1, dtype=torch.long)  # White wins
-        moves_str = row["moves"]
-        illegal_masks = row["illegal_moves"].split('|')
-        # Filter out empty strings
-        illegal_masks = [mask for mask in illegal_masks if len(mask) == 64]
-        illegal_masks_tensor = torch.tensor([[int(bit) for bit in mask] for mask in illegal_masks], dtype=torch.float32)
-                    
-        # Convert moves string to tokens
-        moves = self._chunk_string(moves_str)
-        
-        # Convert tokens to indices
-        move_indices = torch.tensor(
+        example = self.examples[idx]
+        moves = example['moves']
+        winner = example['winner']
+        turns = example['turns']
+
+        #encoded moves
+        encoded_moves = torch.tensor(
             [self.token_to_hot[move] for move in moves],
-            dtype=torch.long
-        )
-        
-        # Generate turns: -1 for black (even indices), 1 for white (odd indices)
-        turns = torch.tensor(
-            [(-1) ** (i+1) for i in range(len(moves))],
-            dtype=torch.long
+            dtype = torch.long
         )
         
         return {
-            'moves': move_indices,
+            'moves': encoded_moves,
             'winner': winner,
-            'turns': turns,
-            'illegal_moves':illegal_masks_tensor
+            'turns': turns
         }
     
-    @staticmethod
-    def _chunk_string(s):
-        """Split string into 2-character chunks"""
-        return [s[i:i+2] for i in range(0, len(s), 2)]
+def chunk_string(s):
+    """Split string into 2-character chunks"""
+    return [s[i:i+2] for i in range(0, len(s), 2)]
+
+def generate_partial_games(moves_str, winner, token_to_hot, min_moves = 4):
+    moves = chunk_string(moves_str)
+    examples = []
+    total_moves = len(moves)
+
+    for num_moves in range(min_moves, total_moves + 1):
+        partial_moves = moves[:num_moves]
+        turns = torch.tensor(
+            [(-1) ** (i+1) for i in range(num_moves)],
+            dtype=torch.long
+            )
+        
+        examples.append({
+            'moves': partial_moves,
+            'winner': winner,
+            'turns': turns,
+            'move_count': num_moves,
+        })
+    
+    return examples
+
+
 
 # Custom collate function to handle variable-length sequences
 def collate_fn(batch):
@@ -69,19 +80,13 @@ def collate_fn(batch):
     padded_moves = pad_sequence(moves, batch_first=True, padding_value=0)
     padded_turns = pad_sequence(turns, batch_first=True, padding_value=0)
     max_seq_len = padded_moves.shape[1]  # Already computed from move padding
-    batch_size = len(batch)
-    padded_illegal_moves = torch.zeros(batch_size, max_seq_len, 64, dtype=torch.float32)
 
-    for i, item in enumerate(batch):
-        if item['illegal_moves'] is not None:
-            illegal = item['illegal_moves']
-            padded_illegal_moves[i, :illegal.shape[0], :] = illegal
-        
+    batch_size = len(batch)
+
     return {
         'moves': padded_moves,
         'winners': winners,
         'turns': padded_turns,
-        'illegal_moves': padded_illegal_moves
     }
 
 
@@ -110,8 +115,8 @@ def Testing():
             i = i+1
 
     # Create dataset and dataloader
-    train_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train_with_illegal_moves.csv"
-    test_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_test_with_illegal_moves.csv"
+    train_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_train.csv"
+    test_csv_path = "C:\\Users\\chick\\Documents\\Code\\ReversAI\\Data\\othello_dataset_test.csv"
 
     try:
         train_dataset = OthelloDataset(train_csv_path, token_to_hot)
@@ -139,8 +144,7 @@ def Testing():
         print(f"  moves: {batch['moves'].shape}")
         print(f"  winners: {batch['winners'].shape}")
         print(f"  turns: {batch['turns'].shape}")
-        print(f"  illegal_moves: {batch['illegal_moves'].shape}")
-        print(f"\nFirst game illegal moves (first 3 moves):\n{batch['illegal_moves'][0, :3, :]}")
+
             
     except FileNotFoundError:
         print("Dataset files not found. Update paths and ensure PreprocessData.py has been run.")

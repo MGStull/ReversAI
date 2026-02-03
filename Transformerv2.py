@@ -116,5 +116,3 @@ class ReversiBotDecoder(nn.Module):
         mask = mask.expand((batch_size,1,seq_length,seq_length))
         mask = mask.to(self.device)
         return mask
-
-
