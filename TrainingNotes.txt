@@ -12,3 +12,5 @@ V2 Architecture
     2. Create an efficient search engine based on possible moves to decide the best next move
 
 V2 Proggress log
+    - Successfully implemented a search engine based on possible moves to decide the best next move
+    -

@@ -188,18 +188,67 @@ class ReversAI:
                 temp_str = node.game.move_str
                 #Calculating legal moves for for depth
                 for move in node.game.get_legal_moves(current_player):
-                    #value = evaluate(self, move_str, )
+                    
                     
                     temp_game = ReversiGame(temp_board,temp_str,current_player)
                     temp_game.make_move(move[0],move[1],current_player,idx_to_token)
                     
-                    leaf = depth_tree[step+1].append(tree_node(parent=node,game = temp_game, value=None, value_str=temp_game.move_str))
+                    evaluation = self.evaluate_position(temp_game.move_str)
+
+                    value = evaluation['probabilities']
+                    leaf = depth_tree[step+1].append(tree_node(parent=node,game = temp_game, value=value, value_str=temp_game.move_str))
                     node.append_child(leaf)
             current_player = -current_player
         return root, depth_tree
 
-    def evaluate(self ,depth, start_game, idx_to_token):
-        pass
+    def evaluate_position(self,move_str):
+        self.model.eval()
+        moves = chunk_string(move_str)
+        move_count = len(moves)
+       
+        encoded_moves = torch.tensor(
+            [self.token_to_hot[move] for move in moves],
+            dtype=torch.long
+        ).unsqueeze(0).to(self.model.device)
+        
+        turns = torch.tensor(
+            [(-1) ** (i + 1) for i in range(move_count)],
+            dtype=torch.long
+        ).unsqueeze(0).to(self.model.device)
+
+        with torch.no_grad():
+            logits = self.model(encoded_moves, turns=turns)
+            probabilities = torch.softmax(logits, dim=1)
+            prediction = torch.argmax(logits, dim=1).item()
+        outcome_map = {0: 'black', 1: 'white', 2: 'draw'}
+    
+        return {
+            'prediction': outcome_map[prediction],
+            'prediction_id': prediction,
+            'probabilities': {
+                'black': probabilities[0, 0].item(),
+                'white': probabilities[0, 1].item(),
+                'draw': probabilities[0, 2].item(),
+            }
+        }
+
+    def minimax(node, depth, is_maximizing):
+        if depth == 0 or node.is_terminal():
+            return move_str
+        
+        if is_maximizing:
+            best_value = 0
+            for child in node.children:
+                value = minimax(child,depth-1, False)
+                best_value = max(best_value, child.value['probabilities'[{-1:'black', 1: 'white'}[self.model_player]]])
+            return best_value
+        else:
+            best_value = 1
+            for child in node.children:
+                value = minimax(child, depth-1, True)
+                best_value = min(best_value, child.value['probabilities'[{-1:'black', 1: 'white'}[-1*self.model_player]]])
+            return best_value
+        
 
     def make_move(self, move):
         self.game.make_move(move)
@@ -213,7 +262,6 @@ class tree_node:
         self.children = children if children is not None else []
         self.value = value
         self.value_str = value_str
-        print(value_str)
     
     def get_parent(self):
         return self.parent
@@ -254,24 +302,32 @@ class tree_node:
                     return False
             
         return True
-    
+    def is_terminal(self):
+        for child in self.children:
+            if child is None:
+                return True
+            else: 
+                return False
+
     def print(self):
         print(self.value_str)
         for child in self.children:
             child.print()            
 
 
-
+def print_prob_tree(node):
+    if node.is_terminal:
+        return ''
+    else:
+        for child in node.children:
+            print_prob_tree(child)
+            print(child.value)
 
 def Testing():
     model_pth = os.path.join('ReversAI','Success_V2_Model','ReproV2FS.pth')
     bot = ReversAI(model_pth, -1, token_to_hot, idx_to_token, token_to_idx)
-    root,depth_tree = bot.get_best_line(1,bot.game,idx_to_token)
-    i=0
-    for row in depth_tree:
-        for item in row:
-            i +=1
-    print(i)
+    root,depth_tree = bot.get_best_line(4,bot.game,idx_to_token)
+    print_prob_tree(root)
     root.validate_integrity()
     
 
