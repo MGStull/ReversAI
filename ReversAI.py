@@ -1,11 +1,7 @@
-import pandas as pd
 import numpy as np
 import torch
-from tqdm import tqdm
-import pickle
 import os
 from Transformerv2 import ReversiBotDecoder
-import anytree as anytree
 
 ###CONSTANTS
      # Create token mappings - CORRECTED
@@ -35,12 +31,11 @@ for letter in letters:
     
 
 class ReversiGame:
-        def __init__(self, board = None, move_str = '', player = -1):
+        def __init__(self, board = None, move_str = ''):
             if board is not None:
                 self.board = board.copy()
             else:
                 self.board = self._init_board()
-            self.player = player
             self.move_str = move_str
         def _init_board(self):
             board = np.zeros((8, 8), dtype=int)
@@ -105,7 +100,7 @@ class ReversiGame:
             
             for dr, dc in directions:
                 self._flip_pieces(row, col, player, dr, dc)
-            self.player = self.player*(-1)
+            return (row, col)
         def set_board(board):
             self.board = board
 
@@ -125,6 +120,22 @@ class ReversiGame:
         def printBoard(self):
             print(self.board)
 
+        def is_terminal(self):
+            return not self.get_legal_moves(1) and not self.get_legal_moves(-1)
+
+        def get_score(self):
+            return np.sum(self.board)
+
+        def get_winner(self):
+            if self.is_terminal():
+                score = self.get_score()
+                if score > 0:
+                    return 1
+                elif score < 0:
+                    return -1
+                else:
+                    return 0
+            return None
 
 def chunk_string(s):
     """Split string into 2-character chunks"""
@@ -133,11 +144,12 @@ def chunk_string(s):
 
 class ReversAI:
         
-    def __init__(self,model_pth,model_player,token_to_hot,idx_to_token,token_to_idx):
+    def __init__(self,model_pth = None, model_player = None, depth=4, token_to_hot = None, idx_to_token = None, token_to_idx = None):
             self.game = ReversiGame()
             self.model = self.load_model(model_pth)
             self.model_player = model_player
             self.move_str = ''
+            self.depth = depth
 
             self.token_to_hot = token_to_hot
             self.idx_to_token = idx_to_token
@@ -175,12 +187,13 @@ class ReversAI:
     This function receives a list of 
     """
 
-    def get_best_line(self, depth, start_game, idx_to_token):
-        step = 0
-        root = tree_node(parent=None,game=start_game,children=None, value=None, value_str=start_game.move_str)
+    def get_best_line(self):
+        depth = self.depth
+        root = tree_node(parent=None,game = ReversiGame(self.game.board.copy(), move_str=self.game.move_str),children=None, value=None, value_str=self.game.move_str)
         depth_tree = [[] for _ in range(depth+1)]
         depth_tree[0].append(root)
         current_player = self.model_player
+        
 
         for step in range(depth):
             for node in depth_tree[step]:
@@ -188,15 +201,15 @@ class ReversAI:
                 temp_str = node.game.move_str
                 #Calculating legal moves for for depth
                 for move in node.game.get_legal_moves(current_player):
-                    
-                    
-                    temp_game = ReversiGame(temp_board,temp_str,current_player)
-                    temp_game.make_move(move[0],move[1],current_player,idx_to_token)
+                    row, col = move
+                    temp_game = ReversiGame(temp_board,temp_str)
+                    temp_game.make_move(row = row, col = col, player = current_player ,idx_to_token = self.idx_to_token)
                     
                     evaluation = self.evaluate_position(temp_game.move_str)
 
                     value = evaluation['probabilities']
-                    leaf = depth_tree[step+1].append(tree_node(parent=node,game = temp_game, value=value, value_str=temp_game.move_str))
+                    leaf = tree_node(parent=node,game = temp_game, value=value, value_str=temp_game.move_str)
+                    depth_tree[step+1].append(leaf)
                     node.append_child(leaf)
             current_player = -current_player
         return root, depth_tree
@@ -226,34 +239,64 @@ class ReversAI:
             'prediction': outcome_map[prediction],
             'prediction_id': prediction,
             'probabilities': {
-                'black': probabilities[0, 0].item(),
-                'white': probabilities[0, 1].item(),
-                'draw': probabilities[0, 2].item(),
+                '-1': probabilities[0, 0].item(),
+                '1': probabilities[0, 1].item(),
+                '0': probabilities[0, 2].item(),
             }
         }
 
-    def minimax(node, depth, is_maximizing):
+    def minimax(self, node, depth, is_maximizing):
         if depth == 0 or node.is_terminal():
-            return move_str
+            moves_in_path = chunk_string(node.value_str.replace(self.game.move_str,""))
+            return node.value[str(self.model_player)],node, moves_in_path
         
         if is_maximizing:
-            best_value = 0
+            best_value = -float('inf')
+            best_node = None
             for child in node.children:
-                value = minimax(child,depth-1, False)
-                best_value = max(best_value, child.value['probabilities'[{-1:'black', 1: 'white'}[self.model_player]]])
-            return best_value
+                value, child_node, path = self.minimax(child, depth-1, False)
+                if value > best_value:
+                    best_value = value
+                    best_path = path
+                    best_node = child
+            return best_value, best_node, best_path
         else:
-            best_value = 1
+            best_value = float('inf')
+            best_node = None
             for child in node.children:
-                value = minimax(child, depth-1, True)
-                best_value = min(best_value, child.value['probabilities'[{-1:'black', 1: 'white'}[-1*self.model_player]]])
-            return best_value
-        
+                value, child_node, path = self.minimax(child, depth-1, True)
+                if value < best_value:
+                    best_value = value
+                    best_node = child
+                    best_path = path
+            return best_value, best_node, best_path 
 
-    def make_move(self, move):
-        self.game.make_move(move)
-        self.move_str = self.move_str.cat(move)
-        
+    def get_best_move(self):
+        root, depth_tree = self.get_best_line()
+        best_value, best_node, best_path = self.minimax(root, self.depth, True)
+        return best_path[0]
+
+    def make_move(self, idx_move, player):
+        row, col = idx_move
+        move = self.game.make_move(row,col,player,self.idx_to_token)
+
+        self.move_str = self.move_str+self.idx_to_token[move]
+        return move
+
+    def play(self):
+        self.game.printBoard()
+        if not self.game.get_legal_moves(self.model_player):
+            print("No legal moves available", self.game.get_legal_moves(self.model_player))
+            return None
+        if not self.game.is_terminal():
+            token_move = self.get_best_move()  
+            idx_move = self.make_move(token_to_idx[token_move], player = self.model_player)
+            return idx_move
+        else:
+            print("Game Over")
+            return {self.model_player:'win',-self.model_player:'loss',0:'draw'}[self.game.get_score()]
+
+
 
 class tree_node:
     def __init__(self, parent=None, game = None,children=None, value = None, value_str=None):
@@ -302,12 +345,8 @@ class tree_node:
                     return False
             
         return True
-    def is_terminal(self):
-        for child in self.children:
-            if child is None:
-                return True
-            else: 
-                return False
+    def is_terminal(self): 
+        return not self.children
 
     def print(self):
         print(self.value_str)
@@ -315,23 +354,107 @@ class tree_node:
             child.print()            
 
 
-def print_prob_tree(node):
-    if node.is_terminal:
-        return ''
+def matchConductor(bot1, bot2):
+    if bot1.model_player == bot2.model_player:
+        raise ValueError("Bot1 and Bot2 must have different model players")
+    if bot1.model_player == 1:
+        white_bot = bot1
+        black_bot = bot2
     else:
-        for child in node.children:
-            print_prob_tree(child)
-            print(child.value)
+        white_bot = bot2
+        black_bot = bot1
+    game_history = []
+    while not white_bot.game.is_terminal() and not black_bot.game.is_terminal():
+        
+        print("black bots legal moves: ",black_bot.game.get_legal_moves(-1))
+        idx_move = black_bot.play()
+        if idx_move is None:
+            print("No legal moves for black")
+        else:
+            row, col = idx_move
+            white_bot.game.make_move(row = row, col=col,player= -1, idx_to_token=idx_to_token)
+            game_history.append(idx_to_token[idx_move])
 
-def Testing():
-    model_pth = os.path.join('ReversAI','Success_V2_Model','ReproV2FS.pth')
-    bot = ReversAI(model_pth, -1, token_to_hot, idx_to_token, token_to_idx)
-    root,depth_tree = bot.get_best_line(4,bot.game,idx_to_token)
-    print_prob_tree(root)
-    root.validate_integrity()
+        print("white bots legal moves: ",white_bot.game.get_legal_moves(1))
+        idx_move = white_bot.play()
+        if idx_move is None:
+            print("No legal moves for white")
+        else:
+            row, col = idx_move
+            black_bot.game.make_move(row = row, col=col,player = 1, idx_to_token=idx_to_token)
+            game_history.append(idx_to_token[idx_move])
+
+        print("Game Score = ", white_bot.game.get_score())
+        print("Game History: ", game_history)
+    print("Game Over : ", white_bot.game.get_winner())
+    return white_bot.game.get_winner(), game_history
+
+
+
+
+def PlayTest():
+    model_pth = os.path.join('Success_V2_Model','ReproV2FS.pth')
     
 
-Testing()
+    
+    greedy_black_bot = ReversAI(
+        model_pth = model_pth,
+        model_player=-1,
+        depth=1, 
+        token_to_hot = token_to_hot,
+        idx_to_token = idx_to_token, 
+        token_to_idx = token_to_idx
+         )
+    
+
+    deep_black_bot = ReversAI(
+        model_pth = model_pth,
+        model_player=-1,
+        depth=4, 
+        token_to_hot = token_to_hot,
+        idx_to_token = idx_to_token, 
+        token_to_idx = token_to_idx
+         )
+    super_deep_black_bot = ReversAI(
+        model_pth = model_pth,
+        model_player=-1,
+        depth=8, 
+        token_to_hot = token_to_hot,
+        idx_to_token = idx_to_token, 
+        token_to_idx = token_to_idx
+         )
+
+    greedy_white_bot = ReversAI(
+        model_pth = model_pth,
+        model_player=1,
+        depth=1, 
+        token_to_hot = token_to_hot,
+        idx_to_token = idx_to_token, 
+        token_to_idx = token_to_idx
+         )
+
+    
+    deep_white_bot = ReversAI(
+        model_pth = model_pth, 
+        model_player = 1,
+        depth=4, 
+        token_to_hot = token_to_hot,
+        idx_to_token = idx_to_token, 
+        token_to_idx = token_to_idx
+        )
+    all_games = []
+    
+    score, history = matchConductor(super_deep_black_bot, greedy_white_bot)
+    all_games.append((score, history))
+    score, history = matchConductor(deep_black_bot, deep_white_bot)
+    all_games.append((score, history))
+    score, history = matchConductor(greedy_black_bot, greedy_white_bot)
+    all_games.append((score, history))
+    score, history = matchConductor(greedy_black_bot, deep_white_bot)
+    all_games.append((score, history))
+        
+
+PlayTest()
 
 
 
